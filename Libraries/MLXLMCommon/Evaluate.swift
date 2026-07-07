@@ -649,6 +649,16 @@ public struct TokenIterator: TokenIteratorProtocol {
             asyncEval(y.tokens)
 
         case .logits(let result):
+            // Carry the prefill LMOutput.State forward into decode. Multimodal
+            // models (e.g. Qwen2.5-VL) seed per-call decoder state here — MROPE
+            // positionIds/ropeDeltas — during the prefill `prepare(...)` call and
+            // rely on subsequent `step(...)` calls receiving it via `self.state`.
+            // The `.tokens` branch gets this for free (its `step(previous:)` sets
+            // `self.state = result.state`); the `.logits` branch must do it
+            // explicitly or the prefill state is dropped and the first decode
+            // step runs with no MROPE positions (image-block position drift →
+            // empty-fence degenerate output on dense frames).
+            self.state = result.state
             y = .init(tokens: convertToToken(logits: result.logits))
             asyncEval(y.tokens)
 
