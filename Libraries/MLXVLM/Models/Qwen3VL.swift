@@ -1999,6 +1999,42 @@ public final class Qwen3VL: Module, VLMModel, KVCacheDimensionProvider {
     }
 }
 
+extension Qwen3VL: PreparedInputSplitting {
+
+    /// Opt into ``ChatSession`` warm-cache reuse for append-only media turns.
+    ///
+    /// The continuation path (`prepareContinuation`) already prefills a
+    /// media-bearing remainder at a `positionOffset` carried in
+    /// ``LMOutput/State``; what it needs is a remainder whose media payload
+    /// matches its tokens. ``QwenVL/splitPreparedInput(_:droppingFirst:imageTokenId:videoTokenId:mergeSize:)``
+    /// produces exactly that, or `nil` when it cannot prove the split is sound.
+    ///
+    /// Deepstack features need no handling here: they never appear in a
+    /// prepared input — `visionInputs` derives them from the pixels on every
+    /// forward — so a suffix whose pixels and frames agree with its placeholder
+    /// tokens yields the right per-layer deepstack rows by construction.
+    ///
+    /// The shared routine's video and temporal (`t > 1`) refusals are inherited
+    /// conservatism rather than a necessity for this model: unlike Qwen2.5-VL,
+    /// Qwen3-VL accumulates vision-attention `cuSeqlens` correctly across
+    /// temporal slices and forwards `videoGridTHW` into the continuation's rope
+    /// index. Relaxing the shared contract is a separate change.
+    ///
+    /// `Qwen3VLMoE` deliberately does NOT conform: it has no offset-aware
+    /// continuation path, so a warm split suffix would be prefilled at positions
+    /// computed from zero.
+    public func splitPreparedInput(_ input: LMInput, droppingFirst prefixTokenCount: Int)
+        -> LMInput?
+    {
+        QwenVL.splitPreparedInput(
+            input,
+            droppingFirst: prefixTokenCount,
+            imageTokenId: config.imageTokenIndex,
+            videoTokenId: config.videoTokenIndex,
+            mergeSize: config.visionConfiguration.spatialMergeSize)
+    }
+}
+
 extension Array where Element == THW {
     fileprivate var nilIfEmpty: [THW]? { isEmpty ? nil : self }
 }
